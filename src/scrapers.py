@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import requests
+
 from typing import Any
 from urllib.parse import urljoin
 
-from helpers import is_ai_in_us_job, _first_nonempty, fetch_html, Job, fetch_json, normalize_location
+from helpers import is_ai_in_us_job, first_nonempty, fetch_html, Job, fetch_json, normalize_location, HEADERS, TIMEOUT
 
 
 def scrape_greenhouse(company: str, board_slug: str) -> list[Job]:
@@ -133,8 +135,8 @@ def scrape_amazon_json(company: str, spec: dict[str, Any]) -> list[Job]:
             if not is_ai_in_us_job(item):
                 continue
 
-            title = _first_nonempty(item, title_fields)
-            location = _first_nonempty(item, location_fields)
+            title = first_nonempty(item, title_fields)
+            location = first_nonempty(item, location_fields)
             job_path = item.get("job_path") or item.get("path") or item.get("url") or ""
 
             if not title:
@@ -206,6 +208,172 @@ def scrape_zipline_json(company: str, spec: dict) -> list[Job]:
                 source="zipline_json",
             )
         )
+
+    return jobs
+
+
+def scrape_hubspot_graphql(company: str, spec: dict[str, Any]) -> list[Job]:
+    url = spec["url"]
+
+    # You still need the exact GraphQL query from the Network tab.
+    # This is a template that matches the response shape you saw.
+    payload = {
+        "query": """
+            query Jobs {
+              jobs {
+                id
+                title
+                department { name id __typename }
+                office { location id __typename }
+                location { name __typename }
+                __typename
+              }
+            }
+        """,
+        "variables": {},
+    }
+
+    r = requests.post(url, json=payload, headers=HEADERS, timeout=TIMEOUT)
+    r.raise_for_status()
+    data = r.json()
+
+    jobs_data = data.get("data", {}).get("jobs", [])
+    jobs: list[Job] = []
+
+    for item in jobs_data:
+        title = (item.get("title") or "").strip()
+        if not title:
+            continue
+
+        if not is_ai_in_us_job(item):
+            continue
+
+        office = item.get("office") or {}
+        location_obj = item.get("location") or {}
+
+        location = (
+            office.get("location")
+            or location_obj.get("name")
+            or ""
+        )
+
+        job_id = item.get("id")
+        job_url = f"https://www.hubspot.com/careers/jobs/{job_id}"
+
+        jobs.append(
+            Job(
+                company=company,
+                title=title,
+                url=job_url,
+                location=location,
+                source="hubspot_graphql",
+            )
+        )
+
+    return jobs
+
+
+def scrape_whatnot_json(company: str, spec: dict[str, Any]) -> list[Job]:
+    url = spec["url"]
+    data = fetch_json(url)
+
+    records = data.get("jobs", [])
+    jobs: list[Job] = []
+
+    for item in records:
+        title = str(item.get("title", "")).strip()
+        if not title:
+            continue
+        if not is_ai_in_us_job(item):
+            continue
+
+        location = (
+            item.get("location")
+            or (((item.get("address") or {}).get("postalAddress") or {}).get("addressLocality"))
+            or ""
+        )
+
+        job_url = item.get("jobUrl") or item.get("applyUrl") or ""
+
+        if not job_url:
+            continue
+
+        jobs.append(
+            Job(
+                company=company,
+                title=title,
+                url=job_url,
+                location=location,
+                source="whatnot_json",
+            )
+        )
+
+    return jobs
+
+
+def scrape_tiktok_json(company: str, spec: dict[str, Any]) -> list[Job]:
+    url = spec["url"]
+
+    payload = {
+        "recruitment_id_list": [],
+        "job_category_id_list": [],
+        "subject_id_list": [],
+        "location_code_list": [],
+        "keyword": "",
+        "limit": 12,
+        "offset": 0,
+    }
+
+    headers = {
+        "User-Agent": HEADERS["User-Agent"],
+        "Accept": "*/*",
+        "Content-Type": "application/json",
+        "Origin": "https://lifeattiktok.com",
+        "Referer": "https://lifeattiktok.com/",
+        "website-path": "tiktok",   # 🔥 THIS WAS THE MISSING PIECE
+    }
+
+    jobs: list[Job] = []
+    offset = 0
+    limit = 12
+
+    while True:
+        payload["offset"] = offset
+
+        r = requests.post(url, json=payload, headers=headers, timeout=TIMEOUT)
+        r.raise_for_status()
+        data = r.json()
+
+        records = data.get("data", {}).get("job_post_list", [])
+        breakpoint()  # Debugging: inspect the structure of 'data' and 'records'
+
+        if not records:
+            break
+
+        for item in records:
+            title = str(item.get("title", "")).strip()
+            if not title:
+                continue
+            if not is_ai_in_us_job(item):
+                continue
+
+            city_info = item.get("city_info") or {}
+            location = city_info.get("en_name") or city_info.get("name") or ""
+
+            job_id = item.get("id")
+            job_url = f"https://careers.tiktok.com/search/{job_id}"
+
+            jobs.append(
+                Job(
+                    company=company,
+                    title=title,
+                    url=job_url,
+                    location=location,
+                    source="tiktok_json",
+                )
+            )
+
+        offset += limit
 
     return jobs
 

@@ -15,7 +15,7 @@ AI_ML_KEYWORDS = ["machine learning", "ml", "artificial intelligence", "ai ", "g
                     "deep learning", "applied scientist", "scientist", "research engineer", "data scientist", "nlp", "computer vision",
                     "recommendation", "ranking", "autonomy",
 ]
-LOCATION_KEYWORDS = ["us", "united states", "remote", "usa", "america", "canada", "north america", "new york", "san francisco", "seattle",
+LOCATION_KEYWORDS = ["us", "united states", "usa", "new york", "san francisco", "seattle",
                       "austin", "boston", "washington", "denver", "chicago", "atlanta", "california",
 ]
 HEADERS = {
@@ -79,6 +79,7 @@ def is_us_job(job: dict) -> bool:
 
 def is_ai_in_us_job(job: dict) -> bool:
     return is_ai_ml_job(job) and is_us_job(job)
+    # return True # For testing purposes, we can disable filtering to see all jobs
 
 
 def first_nonempty(item: dict[str, Any], keys: list[str]) -> str:
